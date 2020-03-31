@@ -1,0 +1,267 @@
+---
+title: "Regression Class 2 - Covid Update"
+subtitle: "Class Notes and Homework"
+output: pdf_document
+---
+## Regression Modeling Contd
+
+### Multivariate Regression, Covariance, Correlation, and More Metrics 
+Continuing with our study of Regression, Let's take a look at data from ISL. We're using the ISL data so you can align and extend discussions in the book *(Read chpt 3 of ISL, this is a great introduction to Regression)*:
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(330)
+library(kableExtra)
+library(DBI)
+
+# con2 removed for security
+con2 <- dbConnect(odbc::odbc(), Driver = "{SQL Server}", Server = "analyticslab.database.windows.net", Port = "1433", Database = "Accounting", UID = "Student", 
+    PWD = "Acct7397")
+
+```
+Load the following libraries and functions:
+```{r, message=F, warning=F, fig.width=3, fig.height=3, fig.align="center", echo = T}
+
+library(tidyverse)
+
+rmse <- function(error)
+{
+  sqrt(mean(error^2))
+}
+
+```
+
+Get the following data from our SQL Server:
+```{r, message=F, warning=F, fig.width=3, fig.height=3, fig.align="center", echo = T}
+
+Advertising <-  dbGetQuery(con2,"
+SELECT 
+ [TV]
+,[Radio]
+,[Newspaper]
+,[Sales]
+FROM [dbo].[Advertising]
+")
+
+```
+
+We have 3 independent variables, and one dependent. 
+
+Reviewing some concepts we'll use:  
+
+rmse or std. error:  
+
+$rmse = \sqrt{\sum (y - \bar{y})^2/df}$  
+
+Covariance of $x, y$ is defined as: 
+
+$Cov(x,y) = \frac  {\sum(x - \bar{x})*(y - \bar{y})}{n-1}$  
+
+In **simple** regression, we can also determine $b_1$:  
+
+$b_1 =  \frac {Cov(x,y)}{var(x)}$  
+
+with the std error of that coefficient calculated as:  
+
+$se(\beta_1) = \frac{rmse(model)}{se(x_1)}$ where $se(\beta_1) = \sqrt{\sum(x_1 - \bar{x_1})^2}$ 
+
+Let's start with the simple analysis *(two variables)*: Sales ~ Newspaper. First, let's look at the data:
+```{r, message=F, warning=F, fig.width=3, fig.height=2, fig.align="center", echo = T}
+summary(Advertising$Sales)
+summary(Advertising$Newspaper)
+```
+Sales is in units and Advertising is in thousands of dollars. So the first thing we ask is: Does Sales move with Newspaper spend - is there a relationship? First, we can look at covariance:
+```{r, message=F, warning=F, fig.width=3, fig.height=2, fig.align="center", echo = T}
+dataCov = cov(select(Advertising, Sales, Newspaper))
+dataCov
+```
+The variance of Sales $(Sales - \bar{Sales})^2/n$ is 27, and Newspaper is 474. The covariance $(Sales-\bar{Sales})*(Newspaper-\bar{Newspaper})/n$ is 26. What does that mean?  
+
+The first thing we should notice is that the variance of Sales doesn't move that much when compared with covariance. Note that the Cov formula doesn't square the differences - we want to know if they move in the same direction. They do, but not by much. Let's explore further with a simple model:
+```{r, message=F, warning=F, fig.width=8, fig.height=8, fig.align="center", echo = T}
+mod1 = lm(Sales ~ Newspaper, Advertising)
+summary(mod1)
+```
+OK, there are a lot of concerns here. First, the rmse is 5, when the scale of Sales is 27. So, we're expecting error to be about 20%. The coefficient is .05 - that is, for every dollar we spend on Newspaper advertising, we expect a .05 increase in units sold. Since the scale of Newspaper is ~ 100, which relates to a increase in 5 units *(which is about the std. error - note that std. error is measured on the y scale)*. Another problem is the $R^2$ - i.e., the model explains about 5% of the variance of sales *(which is the random error)*. 
+
+But the p-value! And the stars!! It says the coefficient is significant!! It must be right! Acutally, you have to be careful with p-values. Without going through in-depth analysis of the t-distribution, f-distribution and p-values, let me take some liberties here and over-simplify: The estimate for the Newspaper coefficient is .05, and the std. error of that estimate is .016. Let's look into this: remember, we can use covariance to compute $\beta_{Newspaper}$ and standard error:
+
+```{r, message=F, warning=F, fig.width=8, fig.height=8, fig.align="center", echo = T}
+
+CovX1Y = sum(((Advertising$Newspaper - mean(Advertising$Newspaper))* (Advertising$Sales - mean(Advertising$Sales))))/(nrow(Advertising)-1)
+# or
+CovX1Y2 = cov(Advertising$Sales, Advertising$Newspaper)
+varX = var(Advertising$Newspaper)
+b1 = CovX1Y/varX
+seX  = sqrt(sum((Advertising$Newspaper - mean(Advertising$Newspaper))^2))
+# Now, divide the overall std error of the model by that variable error
+rmse = sqrt(sum((predict(mod1, Advertising) - Advertising$Sales)^2)/(nrow(Advertising)-1))
+seBeta = rmse/seX
+seBeta
+```
+and since we have the mean and std deviation of the coefficient estimate, we can plot this out:
+```{r, message=F, warning=F, fig.width=2, fig.height=2, fig.align="center", echo = T}
+
+base = data.frame(x = seq(from=-.01, to = .15, length.out = 100)) %>%
+                  mutate(y = dnorm(x, mean = b1, sd = seBeta))
+pBeta = ggplot(base, (aes(x, y))) + geom_line() +
+  theme(panel.background = element_rect(fill = "white")) + 
+  geom_vline(xintercept = b1 - (2*seBeta), color = "red")
+pBeta
+
+```
+OK, recall the the null hypothesis *(ain't nuttin going on)* means the coefficient is 0, which is outside of 2 standard deviations *(shown on the red line)*, so we conclude that we can reject the null. That's wrong. The model's low t-value should alert us to this problem. the t-value can be calcuated as:
+
+```{r, message=F, warning=F, fig.width=5, fig.height=5, fig.align="center", echo = T}
+
+coef(mod1) / sqrt(diag(vcov(mod1)))
+
+```
+Look at how it's calculated: it's really a ratio of: coefficient value / std error of the estimate. We typically want this to be a stronger *(larger)* number. So, I wouldn't bet the farm on this model. Maybe we need to add some more variables? 
+```{r, message=F, warning=F, fig.width=5, fig.height=5, fig.align="center", echo = T}
+
+mod2 = lm(Sales ~ Newspaper + Radio + TV, Advertising)
+summary(mod2)
+
+```
+So now look at Newpaper. Didn't we just say that, for every thousand dollars we spent on Newpaper advertising, we increased sales by .05 units? Now it says we won't increase sales at all. What gives?
+
+In the simple regression case, Radio and TV were ignored. But multiple regression will estimate the average effect of each dollar spent on Newspaper, holding Radio and TV fixed. Also note that the p-value of Newspaper is .86, indicating that we can't reject the null - *ain't nuttin going on*. Before, the model estimated a p-value of .001, which is quite significant. 
+
+And there's more to this story. Why is newspaper the one to get the hook? Let's look at the covariance matrix again, this time with all the independents:
+```{r, message=F, warning=F, fig.width=8, fig.height=8, fig.align="center", echo = T}
+cvAd = cov(select(Advertising, Sales, Newspaper, Radio, TV))
+cvAd
+```
+The covariance matrix has some clues, but it's hard to draw inferences from this. That's the point of correlation, which is covariance standardized. $\frac{Cov(x,y)}{\sigma_x, \sigma_y}$, And correlation brings the measure into scale so we can compare across variables *and models*:
+```{r, message=F, warning=F, fig.width=8, fig.height=8, fig.align="center", echo = T}
+corAd = cov2cor(cvAd)
+# or just
+corAd = cor(select(Advertising, Sales, Newspaper, Radio, TV))
+corAd
+```
+Note how correlation standardizes between 0 and 1 *(it also gives a direction +-, but these are all positive)*. This gives us an interesting story.  
+
+Another assumption of linear regression is that the indepedent variables are, well  ..independent. And another assumption is that there is that there is a relationship  between the dependent and independent variables. So, looking at the correlations, we can quickly see that the relationship between Newspaper and Sales is weaker than Newspaper and  Radio. This is a read flag!  
+
+At this point, we say that there's evidence that Newspaper is a **surrogate** variable *(meaning that Newspaper and Radio move together - most probably because everytime we spend on Radio advertising, we also spend on Newspaper)*.
+
+One of our goals in regression analysis is dimension reduction. Not only will it make our life simpler, and the model more managable, but it will improve the current model. Let's compare rmse:
+
+```{r, message=F, warning=F, fig.width=8, fig.height=8, fig.align="center", echo = T}
+
+sigma(lm(Sales ~ Newspaper + Radio + TV, Advertising))
+sigma(lm(Sales ~ Radio + TV, Advertising))
+
+```
+So dropping Newspaper from the model improves the error slighly *(and even if it didn't, it's probably worth it)*.  
+
+So the take-aways:  
+
+* Know your data dimensions, variance and relationships. Data analysis first.  
+* Check your model metrics, identify any flags and resolve before drawing any conclusions.
+
+### Categorical Variables Revisited
+Get the data from SQL Server as shown and visualize on the horsepower and price dimensions:
+```{r, message=F, warning=F, fig.width=5, fig.height=3, fig.align="center", echo = T}
+
+Autos <-  dbGetQuery(con2,"
+SELECT
+  [price]
+ ,[make]
+ ,[horsepower]
+FROM [dbo].[Automobile Price Prediction]
+")
+
+# Convert data to numeric (comes from server as character)
+Autos$price = as.numeric(Autos$price)
+Autos$horsepower = as.numeric(Autos$horsepower)
+
+p <- ggplot(Autos, aes(x=horsepower, y=price))+geom_point() + 
+  geom_smooth(method = "lm", se = F) +
+  theme(panel.background = element_rect(fill = "white"))
+p
+
+```
+
+Now, let's check correlations:
+```{r, message=F, warning=F, fig.width=8, fig.height=8, fig.align="center", echo = T}
+
+# NOTE: Correlation is a numerical calculation, 
+# so we need to covert categorical variables to numeric 
+# one way to do that is to use factors. 
+
+Autos$make = factor(Autos$make)
+
+# Another thing we have to do is make sure all the data 
+# are numeric - we can use data.matrix to do that:
+
+cor(data.matrix(Autos))
+
+```
+
+Create a linear model using just make and horsepower:
+```{r, message=F, warning=F, fig.width=8, fig.height=8, fig.align="center", echo = T}
+
+model2 <- lm(price ~ horsepower + make, Autos)
+summary(model2)
+
+```
+Let's take a moment to see what's really happening with the categorical variables. Regression models *(even in Excel)* will create "indicator" or "dummy" variables for categorical variables. This lets the regression treat the variables as numeric, but it also makes things complex. It will create a seperate variable for EACH value of a categorical variaable. So, in this case, looking at the top corner of the model matrix:
+
+```{r, message=F, warning=F, fig.width=5, fig.height=3, fig.align="center", echo = T}
+
+modMatrix = model.matrix(price ~ horsepower + make, Autos)
+print(modMatrix[1:10, 1:5])
+
+```
+You can see that it starts with audi, and creates a new variable, then bmw.. on and on. This gives us a numeric value to use for modeling *(either it's an audi and the additive effect is coef x 1, or it's not and the additive effect is coef x 0)*.
+
+Create regression lines using abline for BWM and Honda:
+```{r, message=F, warning=F, fig.width=5, fig.height=3, fig.align="center", echo = T}
+
+p <- ggplot(Autos, aes(x=horsepower, y=price)) + geom_point() +
+  geom_abline(intercept = (model2$coefficients["(Intercept)"] + model2$coefficients["makebmw"]) , 
+              slope = model2$coefficients["horsepower"], color = 'blue') +
+  geom_abline(intercept = (model2$coefficients["(Intercept)"] + model2$coefficients["makehonda"]) , 
+              slope = model2$coefficients["horsepower"], color = 'red') +  theme(panel.background = element_rect(fill = "white"))
+p
+
+```
+Now, predict what we would pay for a BMW with 150 horsepower using the model and the equation:
+
+```{r, message=F, warning=F, fig.width=8, fig.height=8, fig.align="center", echo = T}
+
+# so how much would we expect to pay for a bmw with 150 horsepower?
+# create a new test set and use that to predict
+
+tstBMW = data.frame(make = 'bmw', horsepower = 150)
+modPred = predict(model2, tstBMW)
+
+#OR
+
+eqPred = as.numeric((coef(model2)["(Intercept)"]  + model2$coefficients["makebmw"]) + (150*model2$coefficients["horsepower"]))[1]
+
+Out = data.frame(Source = c("Model = ", "Equation = "), Value = c(modPred, eqPred )) 
+knitr::kable(Out) %>%
+  kable_styling(full_width = F, bootstrap_options = "striped", font_size = 9)
+
+```
+### Homework
+
+Get data from the  Premiums-DA1.csv file and check your correlations.
+
+```{r, message=F, warning=F, fig.width=5, fig.height=3, fig.align="center"}
+premiums = read_csv("C:/Users/ellen/Documents/UH/Spring 2020/DA2/tmpGitHub/EllenwTerry/Foundations/Premiums-DA1.csv")
+
+p = ggplot(premiums, aes(Size, Premium)) + 
+  geom_point()+ 
+  geom_point(aes(Size, Premium, color = Churn)) +
+  theme(panel.background = element_rect(fill = "white"))
+p
+```
+
+* Drop any variables wiht a correlation of less than .4
+* Build a model to predict Premiums
+* Create a test dataset and predict the premium for a client where Churn == 'Low', Home.Value = 200000 and size Size = 2000
+* create an equation and verify your models prediction
