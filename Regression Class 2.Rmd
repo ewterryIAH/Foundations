@@ -15,9 +15,6 @@ library(kableExtra)
 library(DBI)
 
 # con2 removed for security
-con2 <- dbConnect(odbc::odbc(), Driver = "{SQL Server}", Server = "analyticslab.database.windows.net", Port = "1433", Database = "Accounting", UID = "Student", 
-    PWD = "Acct7397")
-
 ```
 Load the following libraries and functions:
 ```{r, message=F, warning=F, fig.width=3, fig.height=3, fig.align="center", echo = T}
